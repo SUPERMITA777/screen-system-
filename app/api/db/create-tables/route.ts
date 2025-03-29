@@ -15,140 +15,82 @@ export async function GET() {
       db: { schema: "public" },
     })
 
-    // Crear tabla screen_messages
-    const { error: error1 } = await supabase.rpc("exec_sql", {
-      sql: `
-      CREATE TABLE IF NOT EXISTS public.screen_messages (
-        id SERIAL PRIMARY KEY,
-        message TEXT,
-        image_url TEXT,
-        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        visible BOOLEAN DEFAULT TRUE,
-        display_time INTEGER DEFAULT 10,
-        max_repetitions INTEGER DEFAULT 10,
-        current_repetitions INTEGER DEFAULT 0
-      );
+    // Verificar si las tablas existen
+    const { data: screenMessages, error: error1 } = await supabase
+      .from("screen_messages")
+      .select("id")
+      .limit(1)
 
-      -- Habilitar RLS
-      ALTER TABLE public.screen_messages ENABLE ROW LEVEL SECURITY;
+    const { data: titleConfig, error: error2 } = await supabase
+      .from("title_config")
+      .select("id")
+      .limit(1)
 
-      -- Políticas de RLS
-      DROP POLICY IF EXISTS "Permitir lectura pública de screen_messages" ON public.screen_messages;
-      DROP POLICY IF EXISTS "Permitir inserción a usuarios autenticados" ON public.screen_messages;
-      DROP POLICY IF EXISTS "Permitir actualización a usuarios autenticados" ON public.screen_messages;
+    const { data: screenConfig, error: error3 } = await supabase
+      .from("screen_config")
+      .select("id")
+      .limit(1)
 
-      CREATE POLICY "Permitir lectura pública de screen_messages"
-        ON public.screen_messages FOR SELECT
-        TO public
-        USING (true);
-
-      CREATE POLICY "Permitir inserción a usuarios autenticados"
-        ON public.screen_messages FOR INSERT
-        TO authenticated
-        WITH CHECK (true);
-
-      CREATE POLICY "Permitir actualización a usuarios autenticados"
-        ON public.screen_messages FOR UPDATE
-        TO authenticated
-        USING (true)
-        WITH CHECK (true);
-      `
-    })
-
-    // Crear tabla title_config
-    const { error: error2 } = await supabase.rpc("exec_sql", {
-      sql: `
-      CREATE TABLE IF NOT EXISTS public.title_config (
-        id SERIAL PRIMARY KEY,
-        text TEXT NOT NULL DEFAULT 'DJ Song Request System',
-        image_url TEXT DEFAULT NULL,
-        left_image_url TEXT DEFAULT NULL,
-        right_image_url TEXT DEFAULT NULL,
-        enabled BOOLEAN DEFAULT TRUE,
-        image_size_percent INTEGER DEFAULT 80,
-        is_static BOOLEAN DEFAULT FALSE,
-        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Habilitar RLS
-      ALTER TABLE public.title_config ENABLE ROW LEVEL SECURITY;
-
-      -- Políticas de RLS
-      DROP POLICY IF EXISTS "Permitir lectura pública de title_config" ON public.title_config;
-      DROP POLICY IF EXISTS "Permitir inserción a usuarios autenticados" ON public.title_config;
-      DROP POLICY IF EXISTS "Permitir actualización a usuarios autenticados" ON public.title_config;
-
-      CREATE POLICY "Permitir lectura pública de title_config"
-        ON public.title_config FOR SELECT
-        TO public
-        USING (true);
-
-      CREATE POLICY "Permitir inserción a usuarios autenticados"
-        ON public.title_config FOR INSERT
-        TO authenticated
-        WITH CHECK (true);
-
-      CREATE POLICY "Permitir actualización a usuarios autenticados"
-        ON public.title_config FOR UPDATE
-        TO authenticated
-        USING (true)
-        WITH CHECK (true);
-
-      -- Insertar configuración por defecto si la tabla está vacía
-      INSERT INTO public.title_config (id, text, enabled, is_static)
-      SELECT 1, 'DJ Song Request System', TRUE, FALSE
-      WHERE NOT EXISTS (SELECT 1 FROM public.title_config WHERE id = 1);
-      `
-    })
-
-    // Crear tabla screen_config
-    const { error: error3 } = await supabase.rpc("exec_sql", {
-      sql: `
-      CREATE TABLE IF NOT EXISTS public.screen_config (
-        id SERIAL PRIMARY KEY,
-        enabled BOOLEAN DEFAULT TRUE,
-        display_time INTEGER DEFAULT 10000,
-        transition_effect TEXT DEFAULT 'fade',
-        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Habilitar RLS
-      ALTER TABLE public.screen_config ENABLE ROW LEVEL SECURITY;
-
-      -- Políticas de RLS
-      DROP POLICY IF EXISTS "Permitir lectura pública de screen_config" ON public.screen_config;
-      DROP POLICY IF EXISTS "Permitir inserción a usuarios autenticados" ON public.screen_config;
-      DROP POLICY IF EXISTS "Permitir actualización a usuarios autenticados" ON public.screen_config;
-
-      CREATE POLICY "Permitir lectura pública de screen_config"
-        ON public.screen_config FOR SELECT
-        TO public
-        USING (true);
-
-      CREATE POLICY "Permitir inserción a usuarios autenticados"
-        ON public.screen_config FOR INSERT
-        TO authenticated
-        WITH CHECK (true);
-
-      CREATE POLICY "Permitir actualización a usuarios autenticados"
-        ON public.screen_config FOR UPDATE
-        TO authenticated
-        USING (true)
-        WITH CHECK (true);
+    // Si las tablas no existen, intentar crearlas
+    if (error1?.code === "42P01") {
+      // La tabla screen_messages no existe
+      const { error: createError1 } = await supabase
+        .from("screen_messages")
+        .insert({
+          message: "Bienvenido al sistema",
+          visible: true,
+          display_time: 10,
+          max_repetitions: 10,
+          current_repetitions: 0
+        })
       
-      -- Insertar configuración por defecto si la tabla está vacía
-      INSERT INTO public.screen_config (id, enabled, display_time, transition_effect)
-      SELECT 1, TRUE, 10000, 'fade'
-      WHERE NOT EXISTS (SELECT 1 FROM public.screen_config WHERE id = 1);
-      `
-    })
-
-    if (error1 || error2 || error3) {
-      console.error("Error al crear tablas:", { error1, error2, error3 })
-      return NextResponse.json({ error: "Error al crear las tablas" }, { status: 500 })
+      if (createError1) {
+        console.error("Error al crear screen_messages:", createError1)
+        return NextResponse.json({ error: "Error al crear screen_messages" }, { status: 500 })
+      }
     }
 
-    return NextResponse.json({ message: "Tablas creadas correctamente" })
+    if (error2?.code === "42P01") {
+      // La tabla title_config no existe
+      const { error: createError2 } = await supabase
+        .from("title_config")
+        .insert({
+          text: "DJ Song Request System",
+          enabled: true,
+          image_size_percent: 80,
+          is_static: false
+        })
+      
+      if (createError2) {
+        console.error("Error al crear title_config:", createError2)
+        return NextResponse.json({ error: "Error al crear title_config" }, { status: 500 })
+      }
+    }
+
+    if (error3?.code === "42P01") {
+      // La tabla screen_config no existe
+      const { error: createError3 } = await supabase
+        .from("screen_config")
+        .insert({
+          enabled: true,
+          display_time: 10000,
+          transition_effect: "fade"
+        })
+      
+      if (createError3) {
+        console.error("Error al crear screen_config:", createError3)
+        return NextResponse.json({ error: "Error al crear screen_config" }, { status: 500 })
+      }
+    }
+
+    return NextResponse.json({ 
+      message: "Verificación de tablas completada",
+      tables: {
+        screen_messages: !error1,
+        title_config: !error2,
+        screen_config: !error3
+      }
+    })
   } catch (error) {
     console.error("Error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
