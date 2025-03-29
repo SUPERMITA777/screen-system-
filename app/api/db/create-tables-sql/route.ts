@@ -11,20 +11,6 @@ export async function GET() {
       db: { schema: "public" },
     })
 
-    // Crear tabla dj_config
-    const createDjConfigSql = `
-    CREATE TABLE IF NOT EXISTS public.dj_config (
-      id SERIAL PRIMARY KEY,
-      show_tip_section BOOLEAN DEFAULT FALSE,
-      show_message_section BOOLEAN DEFAULT FALSE
-    );
-    
-    -- Insertar configuración por defecto si la tabla está vacía
-    INSERT INTO public.dj_config (id, show_tip_section, show_message_section)
-    SELECT 1, FALSE, FALSE
-    WHERE NOT EXISTS (SELECT 1 FROM public.dj_config WHERE id = 1);
-    `
-
     // Crear tabla screen_messages
     const createScreenMessagesSql = `
     CREATE TABLE IF NOT EXISTS public.screen_messages (
@@ -32,8 +18,71 @@ export async function GET() {
       message TEXT,
       image_url TEXT,
       timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      visible BOOLEAN DEFAULT TRUE
+      visible BOOLEAN DEFAULT TRUE,
+      display_time INTEGER DEFAULT 10,
+      max_repetitions INTEGER DEFAULT 10,
+      current_repetitions INTEGER DEFAULT 0
     );
+
+    -- Habilitar RLS
+    ALTER TABLE public.screen_messages ENABLE ROW LEVEL SECURITY;
+
+    -- Políticas de RLS
+    CREATE POLICY "Permitir lectura pública de screen_messages"
+      ON public.screen_messages FOR SELECT
+      TO public
+      USING (true);
+
+    CREATE POLICY "Permitir inserción a usuarios autenticados"
+      ON public.screen_messages FOR INSERT
+      TO authenticated
+      WITH CHECK (true);
+
+    CREATE POLICY "Permitir actualización a usuarios autenticados"
+      ON public.screen_messages FOR UPDATE
+      TO authenticated
+      USING (true)
+      WITH CHECK (true);
+    `
+
+    // Crear tabla title_config
+    const createTitleConfigSql = `
+    CREATE TABLE IF NOT EXISTS public.title_config (
+      id SERIAL PRIMARY KEY,
+      text TEXT NOT NULL DEFAULT 'DJ Song Request System',
+      image_url TEXT DEFAULT NULL,
+      left_image_url TEXT DEFAULT NULL,
+      right_image_url TEXT DEFAULT NULL,
+      enabled BOOLEAN DEFAULT TRUE,
+      image_size_percent INTEGER DEFAULT 80,
+      is_static BOOLEAN DEFAULT FALSE,
+      last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Habilitar RLS
+    ALTER TABLE public.title_config ENABLE ROW LEVEL SECURITY;
+
+    -- Políticas de RLS
+    CREATE POLICY "Permitir lectura pública de title_config"
+      ON public.title_config FOR SELECT
+      TO public
+      USING (true);
+
+    CREATE POLICY "Permitir inserción a usuarios autenticados"
+      ON public.title_config FOR INSERT
+      TO authenticated
+      WITH CHECK (true);
+
+    CREATE POLICY "Permitir actualización a usuarios autenticados"
+      ON public.title_config FOR UPDATE
+      TO authenticated
+      USING (true)
+      WITH CHECK (true);
+
+    -- Insertar configuración por defecto si la tabla está vacía
+    INSERT INTO public.title_config (id, text, enabled, is_static)
+    SELECT 1, 'DJ Song Request System', TRUE, FALSE
+    WHERE NOT EXISTS (SELECT 1 FROM public.title_config WHERE id = 1);
     `
 
     // Crear tabla screen_config
@@ -45,6 +94,26 @@ export async function GET() {
       transition_effect TEXT DEFAULT 'fade',
       last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Habilitar RLS
+    ALTER TABLE public.screen_config ENABLE ROW LEVEL SECURITY;
+
+    -- Políticas de RLS
+    CREATE POLICY "Permitir lectura pública de screen_config"
+      ON public.screen_config FOR SELECT
+      TO public
+      USING (true);
+
+    CREATE POLICY "Permitir inserción a usuarios autenticados"
+      ON public.screen_config FOR INSERT
+      TO authenticated
+      WITH CHECK (true);
+
+    CREATE POLICY "Permitir actualización a usuarios autenticados"
+      ON public.screen_config FOR UPDATE
+      TO authenticated
+      USING (true)
+      WITH CHECK (true);
     
     -- Insertar configuración por defecto si la tabla está vacía
     INSERT INTO public.screen_config (id, enabled, display_time, transition_effect)
@@ -52,69 +121,19 @@ export async function GET() {
     WHERE NOT EXISTS (SELECT 1 FROM public.screen_config WHERE id = 1);
     `
 
-    // Crear tabla song_requests
-    const createSongRequestsSql = `
-    CREATE TABLE IF NOT EXISTS public.song_requests (
-      id SERIAL PRIMARY KEY,
-      song TEXT NOT NULL,
-      name TEXT NOT NULL,
-      tip NUMERIC DEFAULT 0,
-      timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      played BOOLEAN DEFAULT FALSE
-    );
-    `
+    // Ejecutar los scripts SQL
+    const { error: error1 } = await supabase.rpc("exec_sql", { sql: createScreenMessagesSql })
+    const { error: error2 } = await supabase.rpc("exec_sql", { sql: createTitleConfigSql })
+    const { error: error3 } = await supabase.rpc("exec_sql", { sql: createScreenConfigSql })
 
-    // Ejecutar las consultas SQL
-    try {
-      await supabase.from("dj_config").select("count").limit(1)
-    } catch (error) {
-      console.log("Creando tabla dj_config...")
-      // La tabla no existe, intentar crearla
-      const { error: createError } = await supabase.rpc("create_dj_config_table")
-      if (createError) {
-        console.error("Error al crear tabla dj_config:", createError)
-      }
+    if (error1 || error2 || error3) {
+      console.error("Error al crear tablas:", { error1, error2, error3 })
+      return NextResponse.json({ error: "Error al crear las tablas" }, { status: 500 })
     }
 
-    try {
-      await supabase.from("screen_messages").select("count").limit(1)
-    } catch (error) {
-      console.log("Creando tabla screen_messages...")
-      // La tabla no existe, intentar crearla
-      const { error: createError } = await supabase.rpc("create_screen_messages_table")
-      if (createError) {
-        console.error("Error al crear tabla screen_messages:", createError)
-      }
-    }
-
-    try {
-      await supabase.from("screen_config").select("count").limit(1)
-    } catch (error) {
-      console.log("Creando tabla screen_config...")
-      // La tabla no existe, intentar crearla
-      const { error: createError } = await supabase.rpc("create_screen_config_table")
-      if (createError) {
-        console.error("Error al crear tabla screen_config:", createError)
-      }
-    }
-
-    try {
-      await supabase.from("song_requests").select("count").limit(1)
-    } catch (error) {
-      console.log("Creando tabla song_requests...")
-      // La tabla no existe, intentar crearla
-      const { error: createError } = await supabase.rpc("create_song_requests_table")
-      if (createError) {
-        console.error("Error al crear tabla song_requests:", createError)
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Tablas verificadas correctamente",
-    })
+    return NextResponse.json({ message: "Tablas creadas correctamente" })
   } catch (error) {
-    console.error("Error en la API:", error)
+    console.error("Error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
