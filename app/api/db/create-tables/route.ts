@@ -1,104 +1,157 @@
 import { NextResponse } from "next/server"
-import { getSupabaseServer } from "@/lib/supabase"
+import { createClient } from "@supabase/supabase-js"
 
 export async function GET() {
   try {
-    const supabase = getSupabaseServer()
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
 
-    // Verificar si las tablas existen
-    const tables = ["dj_config", "screen_messages", "screen_config", "song_requests"]
-    const results = {}
-
-    for (const table of tables) {
-      try {
-        const { data, error } = await supabase.from(table).select("id").limit(1)
-        results[table] = { exists: !error, error: error ? JSON.stringify(error) : null }
-      } catch (error) {
-        console.error(`Error al verificar tabla ${table}:`, error)
-        results[table] = { exists: false, error: String(error) }
-      }
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: "Faltan variables de entorno" }, { status: 500 })
     }
 
-    // Intentar crear la tabla dj_config si no existe
-    if (!results["dj_config"]?.exists) {
-      try {
-        // Intentar insertar un registro para crear la tabla
-        const { error } = await supabase.from("dj_config").insert({
-          show_tip_section: false,
-          show_message_section: false,
-        })
-
-        if (error) {
-          console.error("Error al crear dj_config:", JSON.stringify(error))
-          results["dj_config"].createError = JSON.stringify(error)
-        } else {
-          results["dj_config"].created = true
-        }
-      } catch (error) {
-        console.error("Error al crear dj_config:", error)
-        results["dj_config"].createError = String(error)
-      }
-    }
-
-    // No intentamos crear las otras tablas automáticamente, ya que probablemente fallarán
-    // En su lugar, proporcionamos instrucciones para crearlas manualmente
-
-    return NextResponse.json({
-      success: true,
-      message: "Verificación de tablas completada",
-      results,
-      instructions: {
-        dj_config: `
-          CREATE TABLE public.dj_config (
-            id SERIAL PRIMARY KEY,
-            show_tip_section BOOLEAN DEFAULT FALSE,
-            show_message_section BOOLEAN DEFAULT FALSE
-          );
-        `,
-        screen_messages: `
-          CREATE TABLE public.screen_messages (
-            id SERIAL PRIMARY KEY,
-            message TEXT,
-            image_url TEXT,
-            timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            visible BOOLEAN DEFAULT TRUE,
-            display_time INTEGER DEFAULT 10
-          );
-        `,
-        screen_config: `
-          CREATE TABLE public.screen_config (
-            id SERIAL PRIMARY KEY,
-            enabled BOOLEAN DEFAULT TRUE,
-            display_time INTEGER DEFAULT 10000,
-            transition_effect TEXT DEFAULT 'fade',
-            last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            image_size_percent INTEGER DEFAULT 80,
-            enable_movement BOOLEAN DEFAULT TRUE,
-            enable_effects BOOLEAN DEFAULT FALSE,
-            effect_type TEXT DEFAULT 'none'
-          );
-        `,
-        song_requests: `
-          CREATE TABLE public.song_requests (
-            id SERIAL PRIMARY KEY,
-            song TEXT NOT NULL,
-            name TEXT NOT NULL,
-            tip NUMERIC DEFAULT 0,
-            timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            played BOOLEAN DEFAULT FALSE
-          );
-        `,
-      },
+    // Crear cliente de Supabase
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      db: { schema: "public" },
     })
+
+    // Crear tabla screen_messages
+    const { error: error1 } = await supabase.rpc("exec_sql", {
+      sql: `
+      CREATE TABLE IF NOT EXISTS public.screen_messages (
+        id SERIAL PRIMARY KEY,
+        message TEXT,
+        image_url TEXT,
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        visible BOOLEAN DEFAULT TRUE,
+        display_time INTEGER DEFAULT 10,
+        max_repetitions INTEGER DEFAULT 10,
+        current_repetitions INTEGER DEFAULT 0
+      );
+
+      -- Habilitar RLS
+      ALTER TABLE public.screen_messages ENABLE ROW LEVEL SECURITY;
+
+      -- Políticas de RLS
+      DROP POLICY IF EXISTS "Permitir lectura pública de screen_messages" ON public.screen_messages;
+      DROP POLICY IF EXISTS "Permitir inserción a usuarios autenticados" ON public.screen_messages;
+      DROP POLICY IF EXISTS "Permitir actualización a usuarios autenticados" ON public.screen_messages;
+
+      CREATE POLICY "Permitir lectura pública de screen_messages"
+        ON public.screen_messages FOR SELECT
+        TO public
+        USING (true);
+
+      CREATE POLICY "Permitir inserción a usuarios autenticados"
+        ON public.screen_messages FOR INSERT
+        TO authenticated
+        WITH CHECK (true);
+
+      CREATE POLICY "Permitir actualización a usuarios autenticados"
+        ON public.screen_messages FOR UPDATE
+        TO authenticated
+        USING (true)
+        WITH CHECK (true);
+      `
+    })
+
+    // Crear tabla title_config
+    const { error: error2 } = await supabase.rpc("exec_sql", {
+      sql: `
+      CREATE TABLE IF NOT EXISTS public.title_config (
+        id SERIAL PRIMARY KEY,
+        text TEXT NOT NULL DEFAULT 'DJ Song Request System',
+        image_url TEXT DEFAULT NULL,
+        left_image_url TEXT DEFAULT NULL,
+        right_image_url TEXT DEFAULT NULL,
+        enabled BOOLEAN DEFAULT TRUE,
+        image_size_percent INTEGER DEFAULT 80,
+        is_static BOOLEAN DEFAULT FALSE,
+        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Habilitar RLS
+      ALTER TABLE public.title_config ENABLE ROW LEVEL SECURITY;
+
+      -- Políticas de RLS
+      DROP POLICY IF EXISTS "Permitir lectura pública de title_config" ON public.title_config;
+      DROP POLICY IF EXISTS "Permitir inserción a usuarios autenticados" ON public.title_config;
+      DROP POLICY IF EXISTS "Permitir actualización a usuarios autenticados" ON public.title_config;
+
+      CREATE POLICY "Permitir lectura pública de title_config"
+        ON public.title_config FOR SELECT
+        TO public
+        USING (true);
+
+      CREATE POLICY "Permitir inserción a usuarios autenticados"
+        ON public.title_config FOR INSERT
+        TO authenticated
+        WITH CHECK (true);
+
+      CREATE POLICY "Permitir actualización a usuarios autenticados"
+        ON public.title_config FOR UPDATE
+        TO authenticated
+        USING (true)
+        WITH CHECK (true);
+
+      -- Insertar configuración por defecto si la tabla está vacía
+      INSERT INTO public.title_config (id, text, enabled, is_static)
+      SELECT 1, 'DJ Song Request System', TRUE, FALSE
+      WHERE NOT EXISTS (SELECT 1 FROM public.title_config WHERE id = 1);
+      `
+    })
+
+    // Crear tabla screen_config
+    const { error: error3 } = await supabase.rpc("exec_sql", {
+      sql: `
+      CREATE TABLE IF NOT EXISTS public.screen_config (
+        id SERIAL PRIMARY KEY,
+        enabled BOOLEAN DEFAULT TRUE,
+        display_time INTEGER DEFAULT 10000,
+        transition_effect TEXT DEFAULT 'fade',
+        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Habilitar RLS
+      ALTER TABLE public.screen_config ENABLE ROW LEVEL SECURITY;
+
+      -- Políticas de RLS
+      DROP POLICY IF EXISTS "Permitir lectura pública de screen_config" ON public.screen_config;
+      DROP POLICY IF EXISTS "Permitir inserción a usuarios autenticados" ON public.screen_config;
+      DROP POLICY IF EXISTS "Permitir actualización a usuarios autenticados" ON public.screen_config;
+
+      CREATE POLICY "Permitir lectura pública de screen_config"
+        ON public.screen_config FOR SELECT
+        TO public
+        USING (true);
+
+      CREATE POLICY "Permitir inserción a usuarios autenticados"
+        ON public.screen_config FOR INSERT
+        TO authenticated
+        WITH CHECK (true);
+
+      CREATE POLICY "Permitir actualización a usuarios autenticados"
+        ON public.screen_config FOR UPDATE
+        TO authenticated
+        USING (true)
+        WITH CHECK (true);
+      
+      -- Insertar configuración por defecto si la tabla está vacía
+      INSERT INTO public.screen_config (id, enabled, display_time, transition_effect)
+      SELECT 1, TRUE, 10000, 'fade'
+      WHERE NOT EXISTS (SELECT 1 FROM public.screen_config WHERE id = 1);
+      `
+    })
+
+    if (error1 || error2 || error3) {
+      console.error("Error al crear tablas:", { error1, error2, error3 })
+      return NextResponse.json({ error: "Error al crear las tablas" }, { status: 500 })
+    }
+
+    return NextResponse.json({ message: "Tablas creadas correctamente" })
   } catch (error) {
-    console.error("Error en la API:", error)
-    return NextResponse.json(
-      {
-        error: "Error interno del servidor",
-        details: String(error),
-      },
-      { status: 500 },
-    )
+    console.error("Error:", error)
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
 
